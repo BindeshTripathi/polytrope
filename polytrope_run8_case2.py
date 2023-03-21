@@ -2,7 +2,7 @@
 Dedalus script for numerically evaluating the eigenfunctions and eigenvalues for the waves
 in a 3D magnetized polytropic atmosphere.
 To run using 4 processes, for instance, the following is useful:
-    $ mpiexec -n 4 python3 polytrope_run1.py
+    $ mpiexec -n 4 python3 polytrope_run8_case2.py
 """
 
 import time
@@ -21,22 +21,26 @@ logger = logging.getLogger(__name__)
 
 #==============================================================================================================
 #==============================================================================================================
+
+#For efficient parallel computation, the total number of processors to employ may be taken as (2*nx+1)*(2*ny+1).
+
 Lx                   = 10.0*np.pi
-Ly                   = 10.0*np.pi
-Lz                   = 10.0*np.pi
-nx                   = 3
-ny                   = 3
-nz                   = 32  #512 #96 #1024  #256 #96   
-n                    = 1.50
-gamma                = 1.66666666667
-MA                   = (10.0)**(-2)
-G                    = (n+1)/gamma * ( 1 + gamma/(2*(MA**2)) )
-run_number           = 'polytrope_run1'  #run1 #used to store files for separate runs in separate directory
+Ly                   = Lx
+Lz                   = 60.0*np.pi #Make Lz much larger than Lx to obtain well-resolved eigenmodes for the kx/ky values.
+kspacing             = 0.1 #kspacing is the spacing between consecutive kx or ky values. For a reference value, it may be considered ~2*np.pi/Lx or some factor of this.
+nx                   = 20 #no. of kx to scan in: -nx*kspacing, ..., -2*kspacing, -1*kspacing, 0*kspacing, 1*kspacing, 2*kspacing, ..., nx*kspacing.
+ny                   = 20 #no. of ky to scan in: -ny*kspacing, ..., -2*kspacing, -1*kspacing, 0*kspacing, 1*kspacing, 2*kspacing, ..., ny*kspacing.
+nz                   = 512  #512 #96 #1024  #256 #96   
+n                    = 2.50 #Polytropic index
+gamma                = 1.40 #Adiabatic index
+epsilon              = (10.0)**(-2) #Epsilon here is 1/MA in this code. This is chosen so that hydro limit can be recovered perturbatively.
+run_number           = 'polytrope_run8_case2'  #run1 #used to store files for separate runs in separate directory
 month_of_run         = 'nov2020'
-script_version_number= 'polytrope_run1'
-submit_version_number= script_version_number
-modifiedleft         = True #Do you want to solve for modified left eigenvectors? Yes=True, No=False.
+script_version_number= run_number 
+submit_version_number= run_number 
+modifiedleft         = False #Do you want to solve for modified left eigenvectors? Yes=True, No=False.
 left                 = False #This one finds the left eigenvectors
+
 
 ######################################
 #The options below are for scipy sparse eigenvalue solver only.
@@ -45,23 +49,12 @@ which                = 'LI' #for scipy sparse solver only. largest imaginar y= '
 ######################################
 
 #Now, choose which kx and ky should be solved in parallel.
-kx_ky_global = np.array([ [2*np.pi/Lx*1, 2*np.pi/Ly*0],
-                          [2*np.pi/Lx*2, 2*np.pi/Ly*0],
-                          [2*np.pi/Lx*3, 2*np.pi/Ly*0],
-                          [2*np.pi/Lx*4, 2*np.pi/Ly*0],
-                          [2*np.pi/Lx*5, 2*np.pi/Ly*0],
-                          [2*np.pi/Lx*6, 2*np.pi/Ly*0],
-                          [2*np.pi/Lx*7, 2*np.pi/Ly*0],
-                          [2*np.pi/Lx*8, 2*np.pi/Ly*0],
-                          [2*np.pi/Lx*0, 2*np.pi/Ly*1],
-                          [2*np.pi/Lx*0, 2*np.pi/Ly*2],
-                          [2*np.pi/Lx*0, 2*np.pi/Ly*3],
-                          [2*np.pi/Lx*0, 2*np.pi/Ly*4],
-                          [2*np.pi/Lx*0, 2*np.pi/Ly*5],
-                          [2*np.pi/Lx*0, 2*np.pi/Ly*6],
-                          [2*np.pi/Lx*0, 2*np.pi/Ly*7],
-                          [2*np.pi/Lx*0, 2*np.pi/Ly*8],
-                        ])
+kx_ky_global = np.zeros(((2*nx+1)*(2*ny+1), 2), dtype=np.float64)
+counting = 0
+for jj in range(-ny, ny+1):
+    for ii in range(-nx, nx+1):
+        kx_ky_global[counting] = np.array([ii, jj]) * kspacing
+        counting += 1
 
 
 #kx_global = np.linspace(1/10*2*np.pi/Lx, (2*5/nx)*2*np.pi/Lx*nx, int(nx)) #It somehow appears that np.linspace(start, stop, no_of_processes) should match with mpiexec -n no_of_processes python3 hydro.py
@@ -74,8 +67,8 @@ kx_ky_global = np.array([ [2*np.pi/Lx*1, 2*np.pi/Ly*0],
 
 
 #maintain your directories here:
-parent_dir = "/scratch/07443/bindesh/EVP_runs"
-parent_dir2 = "/work2/07443/bindesh/stampede2/phd2020/polytrope"
+parent_dir = "/scratch_directory_name_goes_here"
+parent_dir2 = "/current_directory_name_goes_here"
 
 
 
@@ -165,18 +158,17 @@ z = domain.grid(0)
 
 # Problem
 #I have used exp(i*omg*t+i*k*x) here in the code
-problem_vars = ['u', 'v', 'w', 'wz']
+problem_vars = ['ux', 'uy', 'uz', 'uz_z']
 
 
-problem = de.EVP(domain, variables = problem_vars, eigenvalue = 'omgsqrd')
+problem = de.EVP(domain, variables = problem_vars, eigenvalue = 'Omegasqrd')
 problem.meta[:]['z']['dirichlet'] = True
 
 problem.parameters['Lz']          = Lz
 problem.parameters['kx']          = 0.2000
 problem.parameters['ky']          = 0.0
-problem.parameters['G']           = G
 problem.parameters['gamma']       = gamma
-problem.parameters['MA']          = MA
+problem.parameters['epsilonsqrd'] = epsilon**2
 problem.parameters['n']           = n
 
 #________________________________________________________________________________________________________________________________________________________________
@@ -185,28 +177,27 @@ problem.parameters['n']           = n
 
 problem.substitutions['dx(A)'] = "1.0j*kx*A"
 problem.substitutions['dy(A)'] = "1.0j*ky*A"
-problem.substitutions['dtsqrd(A)'] = "-1.0*omgsqrd*A"
+problem.substitutions['fac']   = "(1.0 + gamma*(epsilonsqrd)/2)"
+problem.substitutions['chi']     = "dx(ux)+dy(uy)+uz_z"
 
-problem.substitutions['chi']     = "dx(u)+dy(v)+wz"
+
+#These equations are copied from p. 30 of the notes, written with hand; find the document in the overleaf "Notes" folder.
+problem.add_equation("-Omegasqrd*gamma*fac*ux + 1.0j*kx*(-1)*(n+1)*fac*uz - 1.0j*kx*gamma*z*chi   = 0")
+problem.add_equation("epsilonsqrd*kx*ky*z*gamma*ux + (-Omegasqrd*gamma*fac + epsilonsqrd*(kx**2)*gamma*z)*uy + (-1.0j*ky)*(n+1)*fac*uz - 1.0j*ky*gamma*z*(1+epsilonsqrd)*chi   = 0")
+problem.add_equation("1.0j*kx*(fac/gamma+epsilonsqrd)*ux + 1.0j*kx*epsilonsqrd*z/(n+1)*dz(ux) + 1.0j*ky*fac/gamma*uy + ((-Omegasqrd*fac+epsilonsqrd*z*(kx**2))/(n+1))*uz - (1+epsilonsqrd)*chi - (1+epsilonsqrd)*z/(n+1)*dz(chi) = 0")
+problem.add_equation("uz_z - dz(uz)  = 0")
 
 
-problem.add_equation("dtsqrd(u) - z*dx(chi) - G*dx(w) - gamma/(MA**2) * ( dx(wz) + dx(dx(u)) + dy(dy(u)) )          = 0")
-problem.add_equation("dtsqrd(v) - z*dy(chi) - G*dy(w)                                                               = 0")
-problem.add_equation("dtsqrd(w) - z*dz(chi) - gamma*G*chi + G*( dx(u)+dy(v) ) - 1/MA**2 * ( gamma*G*( wz+dx(u) ) - (gamma**2) *G/2*chi + z*( dy(dy(w)) +dz(wz) + dx(dz(u)) ) )  = 0")
-problem.add_equation("wz - dz(w)  = 0")
-
-problem.add_bc("left((z**(n+1)) * chi ) = 0")
-problem.add_bc("right(w)  = 0")
-#problem.add_bc("left(ux)  = 0")
-#problem.add_bc("right(ux) = 0")
+problem.add_bc("left((z**(n+1)) * chi) = 0")
+problem.add_bc("right(uz)  = 0")
 
 print("done with BCs")
 
-# Solver
+# Building a solver
 solver = problem.build_solver()
 
 
-# Create function to compute max growth rate for given kx
+# Create function to compute max growth rate for given (kx, ky)
 def max_growth_rate(kx_ky):
     logger.info('Computing max growth rate for kx = %f, ky = %f' %(kx_ky[0], kx_ky[1]))
     # Change kx parameter
@@ -223,12 +214,16 @@ def max_growth_rate(kx_ky):
     solver.eigenvalues = solver.eigenvalues[finite]
     solver.eigenvectors = solver.eigenvectors[:, finite]
  
-    if int(kx_ky[1]/(2*np.pi/Ly))<0:
-        hf = h5py.File('%s/eig_2modes_kxmode_%i_kymode_minus%i.h5' %(path_2, np.abs(int(kx_ky[0]/(2*np.pi/Lx))),  np.abs(int(kx_ky[1]/(2*np.pi/Ly)))), 'w')  
+    if int(kx_ky[1]/kspacing)<0:
+        if int(kx_ky[0]/kspacing)<0:
+            hf = h5py.File('%s/eigmodes_kxindex_minus%i_kyindex_minus%i.h5' %(path_2, np.abs(int(kx_ky[0]/kspacing)),  np.abs(int(kx_ky[1]/kspacing))), 'w') 
+        else:
+            hf = h5py.File('%s/eigmodes_kxindex_plus%i_kyindex_minus%i.h5' %(path_2, np.abs(int(kx_ky[0]/kspacing)),  np.abs(int(kx_ky[1]/kspacing))), 'w')  
     else:
-        hf = h5py.File('%s/eig_2modes_kxmode_%i_kymode_plus%i.h5'  %(path_2, np.abs(int(kx_ky[0]/(2*np.pi/Lx))),  np.abs(int(kx_ky[1]/(2*np.pi/Ly)))), 'w')
-
-    #hf = h5py.File('%s/eig_2modes_%i.h5' %(path_2, CW.rank), 'w')
+        if int(kx_ky[0]/kspacing)<0:
+            hf = h5py.File('%s/eigmodes_kxindex_minus%i_kyindex_plus%i.h5' %(path_2, np.abs(int(kx_ky[0]/kspacing)),  np.abs(int(kx_ky[1]/kspacing))), 'w') 
+        else:
+            hf = h5py.File('%s/eigmodes_kxindex_plus%i_kyindex_plus%i.h5' %(path_2, np.abs(int(kx_ky[0]/kspacing)),  np.abs(int(kx_ky[1]/kspacing))), 'w') 
     
     
     g3_kx = hf.create_group('kx')
@@ -237,8 +232,8 @@ def max_growth_rate(kx_ky):
     g3_ky = hf.create_group('ky')
     g31_ky = g3_ky.create_dataset('ky', data=kx_ky[1])
     
-    g4 = hf.create_group('full_eigenvectors')
-    g41 = g4.create_dataset('full_eigenvectors',data=solver.eigenvectors)
+    #g4 = hf.create_group('full_eigenvectors')
+    #g41 = g4.create_dataset('full_eigenvectors',data=solver.eigenvectors)
                 
     if left == True:
         g4left = hf.create_group('full_lefteigenvectors')
