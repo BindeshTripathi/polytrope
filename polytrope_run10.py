@@ -56,19 +56,13 @@ for jj in range(-ny, ny+1):
         kx_ky_global[counting] = np.array([ii, jj]) * kspacing
         counting += 1
 
-
-#kx_global = np.linspace(1/10*2*np.pi/Lx, (2*5/nx)*2*np.pi/Lx*nx, int(nx)) #It somehow appears that np.linspace(start, stop, no_of_processes) should match with mpiexec -n no_of_processes python3 hydro.py
-#kx_global = np.linspace(2*np.pi/Lx, 2*np.pi/Lx*nx, int(nx)) #It somehow appears that np.linspace(start, stop, no_of_processes) should match with mpiexec -n 
-
-
-
 #==============================================================================================================
 #==============================================================================================================
 
 
 #maintain your directories here:
-parent_dir = "/scratch/07443/bindesh/EVP_runs"
-parent_dir2 = "/work2/07443/bindesh/stampede2/phd2020/polytrope"
+parent_dir = "director_name"
+parent_dir2 = "director_name_2"
 
 
 
